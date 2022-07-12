@@ -4663,7 +4663,7 @@ pub fn parse_builtin_commands(
             (Pipeline::from_vec(vec![expr]), err)
         }
         b"alias" => parse_alias(working_set, &lite_command.parts, expand_aliases_denylist),
-        b"module" => parse_module(working_set, &lite_command.parts, expand_aliases_denylist),
+        b"module" => parse_module(working_set, &lite_command, expand_aliases_denylist),
         b"use" => parse_use(working_set, &lite_command.parts, expand_aliases_denylist),
         b"overlay" => parse_overlay(working_set, &lite_command.parts, expand_aliases_denylist),
         b"source" => parse_source(working_set, &lite_command.parts, expand_aliases_denylist),

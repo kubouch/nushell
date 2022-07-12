@@ -304,6 +304,23 @@ fn help(
                     span: call.head,
                 }
                 .into_pipeline_data())
+            } else if let Some(module_id) = engine_state.find_module(name.as_bytes(), &[]) {
+                let module = engine_state.get_module(module_id);
+
+                let mut module_usage = module.usage.clone().unwrap_or_else(|| format!("Module {name}"));
+
+                module_usage.push_str("\n\nCommands:\n");
+
+                for decl_id in module.decls.values() {
+                    let signature = engine_state.get_decl(*decl_id).signature();
+
+                    module_usage.push_str(&format!("  {}  {}\n", signature.name, signature.usage));
+                }
+
+                Ok(Value::String{
+                    val: module_usage,
+                    span: call.head
+                }.into_pipeline_data())
             } else {
                 Err(ShellError::CommandNotFound(span(&[
                     rest[0].span,

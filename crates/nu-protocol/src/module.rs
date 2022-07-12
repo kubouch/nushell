@@ -12,6 +12,7 @@ pub struct Module {
     pub aliases: IndexMap<Vec<u8>, AliasId>,
     pub env_vars: IndexMap<Vec<u8>, BlockId>,
     pub span: Option<Span>,
+    pub usage: Option<String>,
 }
 
 impl Module {
@@ -21,6 +22,7 @@ impl Module {
             aliases: IndexMap::new(),
             env_vars: IndexMap::new(),
             span: None,
+            usage: None
         }
     }
 
@@ -30,6 +32,17 @@ impl Module {
             aliases: IndexMap::new(),
             env_vars: IndexMap::new(),
             span: Some(span),
+            usage: None,
+        }
+    }
+
+    pub fn from_span_and_usage(span: Span, usage: String) -> Self {
+        Module {
+            decls: IndexMap::new(),
+            aliases: IndexMap::new(),
+            env_vars: IndexMap::new(),
+            span: Some(span),
+            usage: Some(usage),
         }
     }
 

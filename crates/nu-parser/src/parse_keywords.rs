@@ -1027,6 +1027,7 @@ pub fn parse_module_block(
     working_set: &mut StateWorkingSet,
     span: Span,
     expand_aliases_denylist: &[usize],
+    usage: Option<String>,
 ) -> (Block, Module, Option<ParseError>) {
     let mut error = None;
 
@@ -1051,7 +1052,11 @@ pub fn parse_module_block(
         }
     }
 
-    let mut module = Module::from_span(span);
+    let mut module = if let Some(usage) = usage {
+        Module::from_span_and_usage(span, usage)
+    } else {
+        Module::from_span(span)
+    };
 
     let block: Block = output
         .block
@@ -1149,11 +1154,15 @@ pub fn parse_module_block(
 
 pub fn parse_module(
     working_set: &mut StateWorkingSet,
-    spans: &[Span],
+    lite_command: &LiteCommand,
     expand_aliases_denylist: &[usize],
 ) -> (Pipeline, Option<ParseError>) {
     // TODO: Currently, module is closing over its parent scope (i.e., defs in the parent scope are
     // visible and usable in this module's scope). We want to disable that for files.
+
+    let module_usage = build_usage(working_set, &lite_command.comments);
+
+    let spans = &lite_command.parts;
 
     let mut error = None;
     let bytes = working_set.get_span_contents(spans[0]);
@@ -1190,7 +1199,7 @@ pub fn parse_module(
         let block_span = Span { start, end };
 
         let (block, module, err) =
-            parse_module_block(working_set, block_span, expand_aliases_denylist);
+            parse_module_block(working_set, block_span, expand_aliases_denylist, Some(module_usage));
         error = error.or(err);
 
         let block_id = working_set.add_block(block);
@@ -1360,6 +1369,7 @@ pub fn parse_use(
                             working_set,
                             Span::new(span_start, span_end),
                             expand_aliases_denylist,
+                            None
                         );
                         error = error.or(err);
 
@@ -2078,6 +2088,7 @@ pub fn parse_overlay_add(
                             working_set,
                             Span::new(span_start, span_end),
                             expand_aliases_denylist,
+                            None
                         );
                         error = error.or(err);
 
