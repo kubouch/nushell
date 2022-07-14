@@ -45,6 +45,7 @@ pub fn create_default_context() -> EngineState {
             Extern,
             For,
             Help,
+            HelpCommands,
             Hide,
             If,
             Ignore,

@@ -209,124 +209,56 @@ fn help(
     }
 
     if !rest.is_empty() {
-        let mut found_cmds_vec = Vec::new();
+        let mut name = String::new();
 
-        if rest[0].item == "commands" {
-            for decl_id in commands {
-                let mut cols = vec![];
-                let mut vals = vec![];
+        for r in &rest {
+            if !name.is_empty() {
+                name.push(' ');
+            }
+            name.push_str(&r.item);
+        }
 
-                let decl = engine_state.get_decl(decl_id);
-                let sig = decl.signature().update_from_command(decl.borrow());
+        let output = engine_state
+            .get_signatures_with_examples(false)
+            .iter()
+            .filter(|(signature, _, _, _)| signature.name == name)
+            .map(|(signature, examples, _, _)| {
+                get_full_help(signature, examples, engine_state, stack)
+            })
+            .collect::<Vec<String>>();
 
-                let key = sig.name;
-                let usage = sig.usage;
-                let search_terms = sig.search_terms;
+        if !output.is_empty() {
+            Ok(Value::String {
+                val: output.join("======================\n\n"),
+                span: call.head,
+            }
+            .into_pipeline_data())
+        } else if let Some(module_id) = engine_state.find_module(name.as_bytes(), &[]) {
+            let module = engine_state.get_module(module_id);
 
-                cols.push("name".into());
-                vals.push(Value::String {
-                    val: key,
-                    span: head,
-                });
+            let mut module_usage = module
+                .usage
+                .clone()
+                .unwrap_or_else(|| format!("Module {name}"));
 
-                cols.push("category".into());
-                vals.push(Value::String {
-                    val: sig.category.to_string(),
-                    span: head,
-                });
+            module_usage.push_str("\n\nCommands:\n");
 
-                cols.push("is_plugin".into());
-                vals.push(Value::Bool {
-                    val: decl.is_plugin().is_some(),
-                    span: head,
-                });
+            for decl_id in module.decls.values() {
+                let signature = engine_state.get_decl(*decl_id).signature();
 
-                cols.push("is_custom".into());
-                vals.push(Value::Bool {
-                    val: decl.get_block_id().is_some(),
-                    span: head,
-                });
-
-                cols.push("is_keyword".into());
-                vals.push(Value::Bool {
-                    val: decl.is_parser_keyword(),
-                    span: head,
-                });
-
-                cols.push("usage".into());
-                vals.push(Value::String {
-                    val: usage,
-                    span: head,
-                });
-
-                cols.push("search_terms".into());
-                vals.push(if search_terms.is_empty() {
-                    Value::nothing(head)
-                } else {
-                    Value::String {
-                        val: search_terms.join(", "),
-                        span: head,
-                    }
-                });
-
-                found_cmds_vec.push(Value::Record {
-                    cols,
-                    vals,
-                    span: head,
-                });
+                module_usage.push_str(&format!("  {}  {}\n", signature.name, signature.usage));
             }
 
-            Ok(found_cmds_vec
-                .into_iter()
-                .into_pipeline_data(engine_state.ctrlc.clone()))
+            Ok(Value::String {
+                val: module_usage,
+                span: call.head,
+            }
+            .into_pipeline_data())
         } else {
-            let mut name = String::new();
-
-            for r in &rest {
-                if !name.is_empty() {
-                    name.push(' ');
-                }
-                name.push_str(&r.item);
-            }
-
-            let output = engine_state
-                .get_signatures_with_examples(false)
-                .iter()
-                .filter(|(signature, _, _, _)| signature.name == name)
-                .map(|(signature, examples, _, _)| {
-                    get_full_help(signature, examples, engine_state, stack)
-                })
-                .collect::<Vec<String>>();
-
-            if !output.is_empty() {
-                Ok(Value::String {
-                    val: output.join("======================\n\n"),
-                    span: call.head,
-                }
-                .into_pipeline_data())
-            } else if let Some(module_id) = engine_state.find_module(name.as_bytes(), &[]) {
-                let module = engine_state.get_module(module_id);
-
-                let mut module_usage = module.usage.clone().unwrap_or_else(|| format!("Module {name}"));
-
-                module_usage.push_str("\n\nCommands:\n");
-
-                for decl_id in module.decls.values() {
-                    let signature = engine_state.get_decl(*decl_id).signature();
-
-                    module_usage.push_str(&format!("  {}  {}\n", signature.name, signature.usage));
-                }
-
-                Ok(Value::String{
-                    val: module_usage,
-                    span: call.head
-                }.into_pipeline_data())
-            } else {
-                Err(ShellError::CommandNotFound(span(&[
-                    rest[0].span,
-                    rest[rest.len() - 1].span,
-                ])))
-            }
+            Err(ShellError::CommandNotFound(span(&[
+                rest[0].span,
+                rest[rest.len() - 1].span,
+            ])))
         }
     } else {
         let msg = r#"Welcome to Nushell.
