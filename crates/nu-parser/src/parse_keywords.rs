@@ -1322,6 +1322,16 @@ pub fn parse_use(
 
     let mut error = None;
 
+    let early_return = (
+        Pipeline::from_vec(vec![Expression {
+            expr: Expr::Call(call),
+            span: call_span,
+            ty: Type::Any,
+            custom_completion: None,
+        }]),
+        Some(ParseError::ModuleNotFound(import_pattern.head.span)),
+    );
+
     // TODO: Add checking for importing too long import patterns, e.g.:
     // > use spam foo non existent names here do not throw error
     let (import_pattern, module) =
@@ -1329,8 +1339,6 @@ pub fn parse_use(
             (import_pattern, working_set.get_module(module_id).clone())
         } else {
             // TODO: Do not close over when loading module from file?
-            // It could be a file
-
             let (module_filename, err) =
                 unescape_unquote_string(&import_pattern.head.name, import_pattern.head.span);
 
@@ -1341,32 +1349,73 @@ pub fn parse_use(
                     let module_name = if let Some(stem) = module_path.file_stem() {
                         stem.to_string_lossy().to_string()
                     } else {
-                        return (
-                            Pipeline::from_vec(vec![Expression {
-                                expr: Expr::Call(call),
-                                span: call_span,
-                                ty: Type::Any,
-                                custom_completion: None,
-                            }]),
-                            Some(ParseError::ModuleNotFound(spans[1])),
-                        );
+                        return early_return;
                     };
 
-                    if let Ok(contents) = std::fs::read(&module_path) {
-                        let span_start = working_set.next_span_start();
-                        working_set.add_file(module_filename, &contents);
-                        let span_end = working_set.next_span_start();
+                    let span_start = working_set.next_span_start();
 
-                        // Change currently parsed directory
-                        let prev_currently_parsed_cwd = if let Some(parent) = module_path.parent() {
+                    let prev_currently_parsed_cwd = if module_path.is_file() {
+                        if let Ok(contents) = std::fs::read(&module_path) {
+                            working_set.add_file(module_filename, &contents);
+                        } else {
+                            return early_return;
+                        }
+
+                        let prev = working_set.currently_parsed_cwd.clone();
+
+                        if let Some(parent) = module_path.parent() {
+                            working_set.currently_parsed_cwd = Some(parent.into());
+                        }
+
+                        prev
+                    } else if module_path.is_dir() {
+                        if let Ok(dir_iter) = module_path.read_dir() {
+                            for dir_entry in dir_iter {
+                                if let Ok(entry) = dir_entry {
+                                    let entry_path = entry.path();
+
+                                    if entry_path.ends_with(".nu") {
+                                        if let Ok(contents) = std::fs::read(&entry_path) {
+                                            working_set.add_file(
+                                                entry_path.to_string_lossy().to_string(),
+                                                &contents,
+                                            );
+                                        } else {
+                                            return early_return;
+                                        }
+                                    }
+                                }
+                            }
+
                             let prev = working_set.currently_parsed_cwd.clone();
 
-                            working_set.currently_parsed_cwd = Some(parent.into());
+                            working_set.currently_parsed_cwd = Some(module_path);
 
                             prev
                         } else {
-                            working_set.currently_parsed_cwd.clone()
-                        };
+                            return early_return;
+                        }
+                    } else {
+                        return early_return;
+                    };
+
+                    let span_end = working_set.next_span_start();
+
+                    // if let Ok(contents) = std::fs::read(&module_path) {
+                    //     let span_start = working_set.next_span_start();
+                    //     // working_set.add_file(module_filename, &contents);
+                    //     let span_end = working_set.next_span_start();
+
+                        // Change currently parsed directory
+                        // let prev_currently_parsed_cwd = if let Some(parent) = &module_path.parent() {
+                        //     let prev = working_set.currently_parsed_cwd.clone();
+
+                        //     working_set.currently_parsed_cwd = Some(parent.into());
+
+                        //     prev
+                        // } else {
+                        //     working_set.currently_parsed_cwd.clone()
+                        // };
 
                         let (block, module, err) = parse_module_block(
                             working_set,
@@ -1386,24 +1435,25 @@ pub fn parse_use(
                                 head: ImportPatternHead {
                                     name: module_name.into(),
                                     id: Some(module_id),
-                                    span: spans[1],
+                                    span: import_pattern.head.span,
                                 },
                                 members: import_pattern.members,
                                 hidden: HashSet::new(),
                             },
                             module,
                         )
-                    } else {
-                        return (
-                            Pipeline::from_vec(vec![Expression {
-                                expr: Expr::Call(call),
-                                span: call_span,
-                                ty: Type::Any,
-                                custom_completion: None,
-                            }]),
-                            Some(ParseError::ModuleNotFound(spans[1])),
-                        );
-                    }
+                    // } else {
+                    //     return early_return;
+                    //     // (
+                    //     //     Pipeline::from_vec(vec![Expression {
+                    //     //         expr: Expr::Call(call),
+                    //     //         span: call_span,
+                    //     //         ty: Type::Any,
+                    //     //         custom_completion: None,
+                    //     //     }]),
+                    //     //     Some(ParseError::ModuleNotFound(spans[1])),
+                    //     // );
+                    // }
                 } else {
                     error = error.or(Some(ParseError::ModuleNotFound(import_pattern.head.span)));
 
