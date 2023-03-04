@@ -1,4 +1,4 @@
-use crate::{AliasId, BlockId, DeclId, Span};
+use crate::{AliasId, BlockId, DeclId, ModuleId, Span};
 
 use indexmap::IndexMap;
 
@@ -11,6 +11,7 @@ pub struct Module {
     pub env_block: Option<BlockId>, // `export-env { ... }` block
     pub main: Option<DeclId>,       // `export def main`
     pub span: Option<Span>,
+    pub submodules: Vec<ModuleId>,
 }
 
 impl Module {
@@ -22,6 +23,7 @@ impl Module {
             env_block: None,
             main: None,
             span: None,
+            submodules: vec![],
         }
     }
 
@@ -33,6 +35,7 @@ impl Module {
             env_block: None,
             main: None,
             span: Some(span),
+            submodules: vec![],
         }
     }
 
