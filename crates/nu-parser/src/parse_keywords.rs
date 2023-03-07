@@ -2180,6 +2180,26 @@ pub fn parse_use(
         // It could be a file
         // TODO: Do not close over when loading module from file?
 
+        match parse_module_file_or_dir(working_set, &import_pattern.head.name, import_pattern.head.span, expand_aliases_denylist) {
+            Ok(module_id) => {
+                let module = working_set.get_module(module_id);
+                log::info!("=== MODULE: {:?}", module.submodules);
+            },
+            Err(err) => {
+                    return (
+                        Pipeline::from_vec(vec![Expression {
+                            expr: Expr::Call(call),
+                            span: call_span,
+                            ty: Type::Any,
+                            custom_completion: None,
+                        }]),
+                        vec![],
+                        Some(err),
+                    );
+            }
+
+        }
+
         let (module_filename, err) =
             unescape_unquote_string(&import_pattern.head.name, import_pattern.head.span);
 
