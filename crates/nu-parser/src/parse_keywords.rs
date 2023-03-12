@@ -10,8 +10,8 @@ use nu_protocol::{
     Type,
 };
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 static LIB_DIRS_ENV: &str = "NU_LIB_DIRS";
 #[cfg(feature = "plugin")]
@@ -2171,8 +2171,6 @@ pub fn parse_use(
         );
     };
 
-    let cwd = working_set.get_cwd();
-
     // TODO: Add checking for importing too long import patterns, e.g.:
     // > use spam foo non existent names here do not throw error
     let (import_pattern, module) = if let Some(module_id) = import_pattern.head.id {
@@ -2204,7 +2202,7 @@ pub fn parse_use(
                     },
                     module,
                 )
-            },
+            }
             Err(err) => {
                 return (
                     Pipeline::from_vec(vec![Expression {
@@ -2707,7 +2705,8 @@ fn parse_module_file_or_dir(
                     if let Ok(entry) = res {
                         let entry_path = entry.path();
 
-                        if entry_path.is_file() && entry_path.extension() == Some(&OsStr::new("nu")) {
+                        if entry_path.is_file() && entry_path.extension() == Some(OsStr::new("nu"))
+                        {
                             Some(entry_path)
                         } else {
                             None
