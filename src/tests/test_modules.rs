@@ -111,3 +111,23 @@ fn export_alias() -> TestResult {
         "hello",
     )
 }
+
+#[test]
+fn use_wrong_import_pattern_glob() -> TestResult {
+    fail_test(r#"module spam {}; use spam * bar"#, "glob")
+}
+
+#[test]
+fn use_wrong_import_pattern_list() -> TestResult {
+    fail_test(r#"module spam {}; use spam [ eggs ] bar"#, "list")
+}
+
+#[test]
+fn hide_wrong_import_pattern_glob() -> TestResult {
+    fail_test(r#"module spam {}; hide spam * bar"#, "glob")
+}
+
+#[test]
+fn hide_wrong_import_pattern_list() -> TestResult {
+    fail_test(r#"module spam {}; hide spam [ eggs ] bar"#, "list")
+}

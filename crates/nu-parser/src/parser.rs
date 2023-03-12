@@ -3270,7 +3270,10 @@ pub fn parse_import_pattern(
     } else {
         return (
             garbage(span(spans)),
-            Some(ParseError::WrongImportPattern(span(spans))),
+            Some(ParseError::WrongImportPattern(
+                "needs at least one component".to_string(),
+                span(spans),
+            )),
         );
     };
 
@@ -3305,13 +3308,37 @@ pub fn parse_import_pattern(
     };
 
     if spans.len() > 1 {
+        let mut leaf_member_span = None;
+
         for tail_span in spans[1..].iter() {
+            if let Some(prev_span) = leaf_member_span {
+                let what = if working_set.get_span_contents(prev_span) == b"*" {
+                    "glob"
+                } else {
+                    "list"
+                };
+                return (
+                    Expression {
+                        expr: Expr::ImportPattern(import_pattern),
+                        span: prev_span,
+                        ty: Type::List(Box::new(Type::String)),
+                        custom_completion: None,
+                    },
+                    Some(ParseError::WrongImportPattern(
+                        format!("{} can be only at the end of an import pattern", what),
+                        prev_span,
+                    )),
+                );
+            }
+
             let tail = working_set.get_span_contents(*tail_span);
 
             if tail == b"*" {
                 import_pattern
                     .members
                     .push(ImportPatternMember::Glob { span: *tail_span });
+
+                leaf_member_span = Some(*tail_span);
             } else if tail.starts_with(b"[") {
                 let (result, err) = parse_list_expression(
                     working_set,
@@ -3347,6 +3374,8 @@ pub fn parse_import_pattern(
                         Some(ParseError::ExportNotFound(result.span)),
                     );
                 }
+
+                leaf_member_span = Some(*tail_span);
             } else {
                 let tail = trim_quotes(tail);
 
