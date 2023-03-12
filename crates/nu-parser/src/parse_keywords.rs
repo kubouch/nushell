@@ -11,6 +11,7 @@ use nu_protocol::{
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
 
 static LIB_DIRS_ENV: &str = "NU_LIB_DIRS";
 #[cfg(feature = "plugin")]
@@ -2706,7 +2707,7 @@ fn parse_module_file_or_dir(
                     if let Ok(entry) = res {
                         let entry_path = entry.path();
 
-                        if entry_path.is_file() && entry_path.ends_with(".nu") {
+                        if entry_path.is_file() && entry_path.extension() == Some(&OsStr::new("nu")) {
                             Some(entry_path)
                         } else {
                             None
