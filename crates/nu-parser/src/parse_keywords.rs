@@ -1966,6 +1966,176 @@ pub fn parse_module_block(
     (block, module, module_comments, error)
 }
 
+fn parse_module_file(
+    working_set: &mut StateWorkingSet,
+    path: PathBuf,
+    path_str: String,
+    path_span: Span,
+    expand_aliases_denylist: &[usize],
+) -> Result<ModuleId, ParseError> {
+    if let Some(i) = working_set
+        .parsed_module_files
+        .iter()
+        .rposition(|p| p == &path)
+    {
+        let mut files: Vec<String> = working_set
+            .parsed_module_files
+            .split_off(i)
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+
+        files.push(path.to_string_lossy().to_string());
+
+        let msg = files.join("\nuses ");
+
+        return Err(ParseError::CyclicalModuleImport(msg, path_span));
+    }
+
+    let module_name = if let Some(stem) = path.file_stem() {
+        stem.to_string_lossy().to_string()
+    } else {
+        return Err(ParseError::ModuleNotFound(path_span));
+    };
+
+    let contents = if let Ok(contents) = std::fs::read(&path) {
+        contents
+    } else {
+        return Err(ParseError::ModuleNotFound(path_span));
+    };
+
+    let span_start = working_set.next_span_start();
+    working_set.add_file(path_str, &contents);
+    let span_end = working_set.next_span_start();
+
+    // Change the currently parsed directory
+    let prev_currently_parsed_cwd = if let Some(parent) = path.parent() {
+        let prev = working_set.currently_parsed_cwd.clone();
+
+        working_set.currently_parsed_cwd = Some(parent.into());
+
+        prev
+    } else {
+        working_set.currently_parsed_cwd.clone()
+    };
+
+    // Add the file to the stack of parsed module files
+    working_set.parsed_module_files.push(path);
+
+    // Parse the module
+    let (block, module, module_comments, err) = parse_module_block(
+        working_set,
+        Span::new(span_start, span_end),
+        module_name.as_bytes(),
+        expand_aliases_denylist,
+    );
+
+    // Remove the file from the stack of parsed module files
+    working_set.parsed_module_files.pop();
+
+    // Restore the currently parsed directory back
+    working_set.currently_parsed_cwd = prev_currently_parsed_cwd;
+
+    if let Some(err) = err {
+        return Err(err);
+    }
+
+    let _ = working_set.add_block(block);
+    let module_id = working_set.add_module(&module_name, module, module_comments);
+
+    Ok(module_id)
+}
+
+fn parse_module_file_or_dir(
+    working_set: &mut StateWorkingSet,
+    path: &[u8],
+    path_span: Span,
+    expand_aliases_denylist: &[usize],
+) -> Result<ModuleId, ParseError> {
+    let (module_path_str, err) = unescape_unquote_string(path, path_span);
+
+    if let Some(err) = err {
+        return Err(err);
+    }
+
+    let cwd = working_set.get_cwd();
+
+    let module_path =
+        if let Some(path) = find_in_dirs(&module_path_str, working_set, &cwd, LIB_DIRS_ENV) {
+            path
+        } else {
+            // TODO: module or overlay not found
+            return Err(ParseError::ModuleNotFound(path_span));
+        };
+
+    if module_path.is_dir() {
+        if let Ok(dir_contents) = std::fs::read_dir(&module_path) {
+            let mut file_paths: Vec<PathBuf> = dir_contents
+                .filter_map(|res| {
+                    if let Ok(entry) = res {
+                        let entry_path = entry.path();
+
+                        if entry_path.is_file() && entry_path.extension() == Some(OsStr::new("nu"))
+                        {
+                            Some(entry_path)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            file_paths.sort();
+
+            let module_name = if let Some(stem) = module_path.file_stem() {
+                stem.to_string_lossy().to_string()
+            } else {
+                return Err(ParseError::ModuleNotFound(path_span));
+            };
+
+            // working_set.enter_scope();
+
+            // TODO: Add creation of this from mod.nu
+            let mut module = Module::new(module_name.as_bytes().to_vec());
+
+            for file_path in file_paths {
+                match parse_module_file(
+                    working_set,
+                    file_path,
+                    module_path_str.clone(),
+                    path_span,
+                    expand_aliases_denylist,
+                ) {
+                    Ok(module_id) => module.submodules.push(module_id),
+                    Err(err) => return Err(err),
+                }
+            }
+
+            // working_set.exit_scope();
+
+            let module_id = working_set.add_module(&module_name, module, vec![]);
+
+            Ok(module_id)
+        } else {
+            // TODO: module or overlay not found
+            Err(ParseError::ModuleNotFound(path_span))
+        }
+    } else if module_path.is_file() {
+        parse_module_file(
+            working_set,
+            module_path,
+            module_path_str,
+            path_span,
+            expand_aliases_denylist,
+        )
+    } else {
+        // TODO: module or overlay not found
+        Err(ParseError::ModuleNotFound(path_span))
+    }
+}
+
 pub fn parse_module(
     working_set: &mut StateWorkingSet,
     lite_command: &LiteCommand,
@@ -2594,176 +2764,6 @@ pub fn parse_overlay_new(
     );
 
     (pipeline, None)
-}
-
-fn parse_module_file(
-    working_set: &mut StateWorkingSet,
-    path: PathBuf,
-    path_str: String,
-    path_span: Span,
-    expand_aliases_denylist: &[usize],
-) -> Result<ModuleId, ParseError> {
-    if let Some(i) = working_set
-        .parsed_module_files
-        .iter()
-        .rposition(|p| p == &path)
-    {
-        let mut files: Vec<String> = working_set
-            .parsed_module_files
-            .split_off(i)
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-
-        files.push(path.to_string_lossy().to_string());
-
-        let msg = files.join("\nuses ");
-
-        return Err(ParseError::CyclicalModuleImport(msg, path_span));
-    }
-
-    let module_name = if let Some(stem) = path.file_stem() {
-        stem.to_string_lossy().to_string()
-    } else {
-        return Err(ParseError::ModuleNotFound(path_span));
-    };
-
-    let contents = if let Ok(contents) = std::fs::read(&path) {
-        contents
-    } else {
-        return Err(ParseError::ModuleNotFound(path_span));
-    };
-
-    let span_start = working_set.next_span_start();
-    working_set.add_file(path_str, &contents);
-    let span_end = working_set.next_span_start();
-
-    // Change the currently parsed directory
-    let prev_currently_parsed_cwd = if let Some(parent) = path.parent() {
-        let prev = working_set.currently_parsed_cwd.clone();
-
-        working_set.currently_parsed_cwd = Some(parent.into());
-
-        prev
-    } else {
-        working_set.currently_parsed_cwd.clone()
-    };
-
-    // Add the file to the stack of parsed module files
-    working_set.parsed_module_files.push(path);
-
-    // Parse the module
-    let (block, module, module_comments, err) = parse_module_block(
-        working_set,
-        Span::new(span_start, span_end),
-        module_name.as_bytes(),
-        expand_aliases_denylist,
-    );
-
-    // Remove the file from the stack of parsed module files
-    working_set.parsed_module_files.pop();
-
-    // Restore the currently parsed directory back
-    working_set.currently_parsed_cwd = prev_currently_parsed_cwd;
-
-    if let Some(err) = err {
-        return Err(err);
-    }
-
-    let _ = working_set.add_block(block);
-    let module_id = working_set.add_module(&module_name, module, module_comments);
-
-    Ok(module_id)
-}
-
-fn parse_module_file_or_dir(
-    working_set: &mut StateWorkingSet,
-    path: &[u8],
-    path_span: Span,
-    expand_aliases_denylist: &[usize],
-) -> Result<ModuleId, ParseError> {
-    let (module_path_str, err) = unescape_unquote_string(path, path_span);
-
-    if let Some(err) = err {
-        return Err(err);
-    }
-
-    let cwd = working_set.get_cwd();
-
-    let module_path =
-        if let Some(path) = find_in_dirs(&module_path_str, working_set, &cwd, LIB_DIRS_ENV) {
-            path
-        } else {
-            // TODO: module or overlay not found
-            return Err(ParseError::ModuleNotFound(path_span));
-        };
-
-    if module_path.is_dir() {
-        if let Ok(dir_contents) = std::fs::read_dir(&module_path) {
-            let mut file_paths: Vec<PathBuf> = dir_contents
-                .filter_map(|res| {
-                    if let Ok(entry) = res {
-                        let entry_path = entry.path();
-
-                        if entry_path.is_file() && entry_path.extension() == Some(OsStr::new("nu"))
-                        {
-                            Some(entry_path)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            file_paths.sort();
-
-            let module_name = if let Some(stem) = module_path.file_stem() {
-                stem.to_string_lossy().to_string()
-            } else {
-                return Err(ParseError::ModuleNotFound(path_span));
-            };
-
-            // working_set.enter_scope();
-
-            // TODO: Add creation of this from mod.nu
-            let mut module = Module::new(module_name.as_bytes().to_vec());
-
-            for file_path in file_paths {
-                match parse_module_file(
-                    working_set,
-                    file_path,
-                    module_path_str.clone(),
-                    path_span,
-                    expand_aliases_denylist,
-                ) {
-                    Ok(module_id) => module.submodules.push(module_id),
-                    Err(err) => return Err(err),
-                }
-            }
-
-            // working_set.exit_scope();
-
-            let module_id = working_set.add_module(&module_name, module, vec![]);
-
-            Ok(module_id)
-        } else {
-            // TODO: module or overlay not found
-            Err(ParseError::ModuleNotFound(path_span))
-        }
-    } else if module_path.is_file() {
-        parse_module_file(
-            working_set,
-            module_path,
-            module_path_str,
-            path_span,
-            expand_aliases_denylist,
-        )
-    } else {
-        // TODO: module or overlay not found
-        Err(ParseError::ModuleNotFound(path_span))
-    }
 }
 
 pub fn parse_overlay_use(
