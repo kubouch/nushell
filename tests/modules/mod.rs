@@ -562,3 +562,15 @@ fn main_inside_module_is_main() {
 
     assert_eq!(actual.out, "foo");
 }
+
+#[test]
+fn module_dir() {
+    let inp = &[
+        r#"use spam"#,
+        "(spam) + (spam eggs)",
+    ];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert_eq!(actual.out, "spameggs");
+}
