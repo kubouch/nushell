@@ -565,12 +565,33 @@ fn main_inside_module_is_main() {
 
 #[test]
 fn module_dir() {
-    let inp = &[
-        r#"use spam"#,
-        "(spam) + (spam eggs)",
-    ];
+    let inp = &[r#"use spam"#, r#"(spam) + (spam eggs)"#];
 
     let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
 
     assert_eq!(actual.out, "spameggs");
+}
+
+#[test]
+fn leaf_member_in_non_leaf_position_1() {
+    let inp = &[
+        r#"module spam { export def foo [] { 'foo' } }"#,
+        r#"use spam * foo"#,
+    ];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert!(actual.err.contains("glob can be only at the end"));
+}
+
+#[test]
+fn leaf_member_in_non_leaf_position_2() {
+    let inp = &[
+        r#"module spam { export def foo [] { 'foo' } }"#,
+        r#"use spam [ ] foo"#,
+    ];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert!(actual.err.contains("list can be only at the end"));
 }
