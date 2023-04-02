@@ -8,7 +8,7 @@ pub struct Module {
     pub name: Vec<u8>,
     pub decls: IndexMap<Vec<u8>, DeclId>,
     pub aliases: IndexMap<Vec<u8>, AliasId>,
-    pub submodules: Vec<ModuleId>,
+    pub submodules: IndexMap<Vec<u8>, ModuleId>,
     pub env_block: Option<BlockId>, // `export-env { ... }` block
     pub main: Option<DeclId>,       // `export def main`
     pub span: Option<Span>,
@@ -20,10 +20,10 @@ impl Module {
             name,
             decls: IndexMap::new(),
             aliases: IndexMap::new(),
+            submodules: IndexMap::new(),
             env_block: None,
             main: None,
             span: None,
-            submodules: vec![],
         }
     }
 
@@ -32,10 +32,10 @@ impl Module {
             name,
             decls: IndexMap::new(),
             aliases: IndexMap::new(),
+            submodules: IndexMap::new(),
             env_block: None,
             main: None,
             span: Some(span),
-            submodules: vec![],
         }
     }
 
@@ -45,6 +45,10 @@ impl Module {
 
     pub fn add_alias(&mut self, name: Vec<u8>, alias_id: AliasId) -> Option<AliasId> {
         self.aliases.insert(name, alias_id)
+    }
+
+    pub fn add_submodule(&mut self, name: Vec<u8>, module_id: ModuleId) -> Option<ModuleId> {
+        self.submodules.insert(name, module_id)
     }
 
     pub fn add_env_block(&mut self, block_id: BlockId) {

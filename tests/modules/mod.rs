@@ -611,12 +611,12 @@ fn module_exported_from_module() {
         r#"
             module spam {
                 export module eggs {
-                    def main [] { "eggs" }
+                    export def foo [] { "foo" }
                 }
             }
         "#,
         r#"use spam eggs"#,
-        r#"eggs"#,
+        r#"eggs foo"#,
     ];
 
     let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
@@ -630,15 +630,15 @@ fn module_not_exported_from_module() {
         r#"
             module spam {
                 module eggs {
-                    def main [] { "eggs" }
+                    export def foo [] { "foo" }
                 }
             }
         "#,
         r#"use spam eggs"#,
-        r#"eggs"#,
+        r#"eggs foo"#,
     ];
 
     let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
 
-    assert!(actual.err.contains("not found???"));
+    assert!(actual.err.contains("could not find imports"));
 }

@@ -1644,7 +1644,65 @@ pub fn parse_export_in_module(
                 let (pipeline, err) =
                     parse_module(working_set, &lite_command, expand_aliases_denylist);
                 error = error.or(err);
-                todo!("todo module");
+
+                let export_module_decl_id =
+                    if let Some(id) = working_set.find_decl(b"export module", &Type::Any) {
+                        id
+                    } else {
+                        return (
+                            garbage_pipeline(spans),
+                            vec![],
+                            Some(ParseError::InternalError(
+                                "missing 'export module' command".into(),
+                                export_span,
+                            )),
+                        );
+                    };
+
+                // Trying to warp the 'module' call into the 'export module' in a very clumsy way
+                if let Some(PipelineElement::Expression(
+                    _,
+                    Expression {
+                        expr: Expr::Call(ref module_call),
+                        ..
+                    },
+                )) = pipeline.elements.get(0)
+                {
+                    call = module_call.clone();
+
+                    call.head = span(&spans[0..=1]);
+                    call.decl_id = export_module_decl_id;
+                } else {
+                    error = error.or_else(|| {
+                        Some(ParseError::InternalError(
+                            "unexpected output from parsing a definition".into(),
+                            span(&spans[1..]),
+                        ))
+                    });
+                };
+
+                let mut result = vec![];
+
+                if let Some(module_name_span) = spans.get(2) {
+                    let module_name = working_set.get_span_contents(*module_name_span);
+                    let module_name = trim_quotes(module_name);
+
+                    if let Some(module_id) = working_set.find_module(module_name) {
+                        result.push(Exportable::Module {
+                            name: module_name.to_vec(),
+                            id: module_id,
+                        });
+                    } else {
+                        error = error.or_else(|| {
+                            Some(ParseError::InternalError(
+                                "failed to find added module".into(),
+                                span(&spans[1..]),
+                            ))
+                        });
+                    }
+                }
+
+                result
             }
             _ => {
                 error = error.or_else(|| {
@@ -1932,6 +1990,9 @@ pub fn parse_module_block(
                                             Exportable::Alias { name, id } => {
                                                 module.add_alias(name, id);
                                             }
+                                            Exportable::Module { name, id } => {
+                                                module.add_submodule(name, id);
+                                            }
                                         }
                                     }
                                 }
@@ -2124,7 +2185,11 @@ fn parse_module_file_or_dir(
                     path_span,
                     expand_aliases_denylist,
                 ) {
-                    Ok(module_id) => module.submodules.push(module_id),
+                    Ok(module_id) => {
+                        module
+                            .submodules
+                            .insert(module_name.as_bytes().to_vec(), module_id);
+                    }
                     Err(err) => return Err(err),
                 }
             }
@@ -2164,17 +2229,26 @@ pub fn parse_module(
     let mut module_comments = lite_command.comments.clone();
 
     let mut error = None;
-    let bytes = working_set.get_span_contents(spans[0]);
+
+    let (name_span, split_id) =
+        if spans.len() > 1 && working_set.get_span_contents(spans[0]) == b"export" {
+            (spans[1], 2)
+        } else {
+            (spans[0], 1)
+        };
+
+    let bytes = working_set.get_span_contents(name_span);
 
     if bytes == b"module" && spans.len() >= 3 {
-        let (module_name_expr, err) = parse_string(working_set, spans[1], expand_aliases_denylist);
+        let (module_name_expr, err) =
+            parse_string(working_set, spans[split_id], expand_aliases_denylist);
         error = error.or(err);
 
         let module_name = module_name_expr
             .as_string()
             .expect("internal error: module name is not a string");
 
-        let block_span = spans[2];
+        let block_span = spans[split_id + 1];
         let block_bytes = working_set.get_span_contents(block_span);
         let mut start = block_span.start;
         let mut end = block_span.end;
@@ -2216,12 +2290,13 @@ pub fn parse_module(
             custom_completion: None,
         };
 
+        let module_decl_span = span(&spans[..split_id]);
         let module_decl_id = working_set
-            .find_decl(b"module", &Type::Any)
+            .find_decl(working_set.get_span_contents(module_decl_span), &Type::Any)
             .expect("internal error: missing module command");
 
         let call = Box::new(Call {
-            head: spans[0],
+            head: module_decl_span,
             decl_id: module_decl_id,
             arguments: vec![
                 Argument::Positional(module_name_expr),
@@ -2245,7 +2320,7 @@ pub fn parse_module(
         (
             garbage_pipeline(spans),
             Some(ParseError::UnknownState(
-                "Expected structure: module <name> {}".into(),
+                "Expected structure: module <name> <block-or-file-or-dir>".into(),
                 span(spans),
             )),
         )
