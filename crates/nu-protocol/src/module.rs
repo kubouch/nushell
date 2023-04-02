@@ -8,10 +8,10 @@ pub struct Module {
     pub name: Vec<u8>,
     pub decls: IndexMap<Vec<u8>, DeclId>,
     pub aliases: IndexMap<Vec<u8>, AliasId>,
+    pub submodules: Vec<ModuleId>,
     pub env_block: Option<BlockId>, // `export-env { ... }` block
     pub main: Option<DeclId>,       // `export def main`
     pub span: Option<Span>,
-    pub submodules: Vec<ModuleId>,
 }
 
 impl Module {

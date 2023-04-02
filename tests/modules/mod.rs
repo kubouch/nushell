@@ -595,3 +595,50 @@ fn leaf_member_in_non_leaf_position_2() {
 
     assert!(actual.err.contains("list can be only at the end"));
 }
+
+#[test]
+fn module_inside_module() {
+    let inp = &[r#"use inner_modules.nu bar"#, r#"bar"#];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert_eq!(actual.out, "bar");
+}
+
+#[test]
+fn module_exported_from_module() {
+    let inp = &[
+        r#"
+            module spam {
+                export module eggs {
+                    def main [] { "eggs" }
+                }
+            }
+        "#,
+        r#"use spam eggs"#,
+        r#"eggs"#,
+    ];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert_eq!(actual.out, "eggs");
+}
+
+#[test]
+fn module_not_exported_from_module() {
+    let inp = &[
+        r#"
+            module spam {
+                module eggs {
+                    def main [] { "eggs" }
+                }
+            }
+        "#,
+        r#"use spam eggs"#,
+        r#"eggs"#,
+    ];
+
+    let actual = nu!(cwd: "tests/modules/samples", pipeline(&inp.join("; ")));
+
+    assert!(actual.err.contains("not found???"));
+}

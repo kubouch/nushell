@@ -1073,7 +1073,7 @@ pub fn parse_export_in_block(
     let full_name = if lite_command.parts.len() > 1 {
         let sub = working_set.get_span_contents(lite_command.parts[1]);
         match sub {
-            b"old-alias" | b"alias" | b"def" | b"def-env" | b"extern" | b"use" => {
+            b"old-alias" | b"alias" | b"def" | b"def-env" | b"extern" | b"use" | b"module" => {
                 [b"export ", sub].concat()
             }
             _ => b"export".to_vec(),
@@ -1153,6 +1153,10 @@ pub fn parse_export_in_block(
         b"export use" => {
             let (pipeline, _, err) =
                 parse_use(working_set, &lite_command.parts, expand_aliases_denylist);
+            (pipeline, err)
+        }
+        b"export module" => {
+            let (pipeline, err) = parse_module(working_set, &lite_command, expand_aliases_denylist);
             (pipeline, err)
         }
         b"export extern" => parse_extern(working_set, lite_command, None, expand_aliases_denylist),
@@ -1636,6 +1640,12 @@ pub fn parse_export_in_module(
 
                 exportables
             }
+            b"module" => {
+                let (pipeline, err) =
+                    parse_module(working_set, &lite_command, expand_aliases_denylist);
+                error = error.or(err);
+                todo!("todo module");
+            }
             _ => {
                 error = error.or_else(|| {
                     Some(ParseError::Expected(
@@ -1892,6 +1902,12 @@ pub fn parse_module_block(
                             b"use" => {
                                 let (pipeline, _, err) =
                                     parse_use(working_set, &command.parts, expand_aliases_denylist);
+
+                                (pipeline, err)
+                            }
+                            b"module" => {
+                                let (pipeline, err) =
+                                    parse_module(working_set, command, expand_aliases_denylist);
 
                                 (pipeline, err)
                             }
