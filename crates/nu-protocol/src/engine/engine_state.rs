@@ -754,6 +754,17 @@ impl EngineState {
             .expect("internal error: missing declaration")
     }
 
+    pub fn update_decl(&mut self, decl_id: DeclId, decl: Box<dyn Command>) {
+        let element = self.decls.get_mut(decl_id).expect("internal error: missing declaration");
+        let _ = std::mem::replace(element, decl);
+    }
+
+    // pub fn get_decl_mut(&mut self, decl_id: DeclId) -> &mut Box<dyn Command> {
+    //     self.decls
+    //         .get_mut(decl_id)
+    //         .expect("internal error: missing declaration")
+    // }
+
     /// Get all commands within scope, sorted by the commands' names
     pub fn get_decls_sorted(
         &self,
@@ -1141,6 +1152,8 @@ impl<'a> StateWorkingSet<'a> {
         self.delta.decls.push(decl);
         let decl_id = self.num_decls() - 1;
 
+        println!("Add decl {}: {}", String::from_utf8_lossy(&name), decl_id);
+
         self.last_overlay_mut().insert_decl(name, decl_id);
 
         decl_id
@@ -1150,6 +1163,10 @@ impl<'a> StateWorkingSet<'a> {
         let overlay_frame = self.last_overlay_mut();
 
         for (name, decl_id) in decls {
+            println!("use {}: {}", String::from_utf8_lossy(&name), decl_id);
+            // if &name == "foo".as_bytes() {
+            //     panic!("got foo");
+            // }
             overlay_frame.insert_decl(name, decl_id);
             overlay_frame.visibility.use_decl_id(&decl_id);
         }
@@ -1461,6 +1478,78 @@ impl<'a> StateWorkingSet<'a> {
             if let Some(decl_id) = overlay_frame.get_decl(name) {
                 if visibility.is_decl_id_visible(&decl_id) {
                     return Some(decl_id);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn find_decl_name(&self, decl_id: DeclId) -> Option<&[u8]> {
+        let mut removed_overlays = vec![];
+
+        let mut visibility: Visibility = Visibility::new();
+
+        for scope_frame in self.delta.scope.iter().rev() {
+            if self.search_predecls {
+                // if let Some(decl_id) = scope_frame.predecls.get(name) {
+                //     if visibility.is_decl_id_visible(decl_id) {
+                //         return Some(*decl_id);
+                //     }
+                // }
+
+                if visibility.is_decl_id_visible(&decl_id) {
+                    for (name, id) in scope_frame.predecls.iter() {
+                        println!("predecls {}", id);
+                        if id == &decl_id {
+                            return Some(name);
+                        }
+                    }
+                }
+
+            }
+
+            // check overlay in delta
+            for overlay_frame in scope_frame.active_overlays(&mut removed_overlays).rev() {
+                visibility.append(&overlay_frame.visibility);
+
+                if self.search_predecls {
+                    // if let Some(decl_id) = overlay_frame.predecls.get(name) {
+                        if visibility.is_decl_id_visible(&decl_id) {
+                            // return Some(*decl_id);
+                            for (name, id) in overlay_frame.predecls.iter() {
+                                println!("overlay predecls {}", id);
+                                if id == &decl_id {
+                                    return Some(name);
+                                }
+                            }
+                        }
+                    // }
+                }
+
+                // if let Some(decl_id) = overlay_frame.get_decl(name) {
+                    if visibility.is_decl_id_visible(&decl_id) {
+                            for (name, id) in overlay_frame.decls.iter() {
+                                println!("overlay decls {}", id);
+                                if id == &decl_id {
+                                    return Some(name);
+                                }
+                            }
+                        // return Some(decl_id);
+                    }
+                // }
+            }
+        }
+
+        for overlay_frame in self.permanent_state.active_overlays(&removed_overlays).rev() {
+            visibility.append(&overlay_frame.visibility);
+
+            if visibility.is_decl_id_visible(&decl_id) {
+                for (name, id) in overlay_frame.decls.iter() {
+                    println!("perma decls {}", id);
+                    if id == &decl_id {
+                        return Some(name);
+                    }
                 }
             }
         }
@@ -1875,6 +1964,7 @@ impl<'a> StateWorkingSet<'a> {
         modules: Vec<(Vec<u8>, ModuleId)>,
         prefixed: bool,
     ) {
+        println!("Add overlay {}, decls: {:?}", String::from_utf8_lossy(&name), decls);
         let last_scope_frame = self.delta.last_scope_frame_mut();
 
         last_scope_frame

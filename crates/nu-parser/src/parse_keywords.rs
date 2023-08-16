@@ -13,7 +13,7 @@ use nu_protocol::{
     },
     engine::{StateWorkingSet, DEFAULT_OVERLAY_NAME},
     span, Alias, BlockId, Exportable, Module, ModuleId, ParseError, PositionalArg,
-    ResolvedImportPattern, Span, Spanned, SyntaxShape, Type, VarId,
+    ResolvedImportPattern, Signature, Span, Spanned, SyntaxShape, Type, VarId,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -66,6 +66,7 @@ pub const UNALIASABLE_PARSER_KEYWORDS: &[&[u8]] = &[
     b"source",
     b"where",
     b"register",
+    b"link",
 ];
 
 /// Check whether spans start with a parser keyword that can be aliased
@@ -99,17 +100,13 @@ pub fn parse_keyword(
         is_subexpression,
     );
 
-    // if err.is_some() {
-    //     return (Pipeline::from_vec(vec![call_expr]), err);
-    // }
-
     if let Expression {
         expr: Expr::Call(call),
         ..
     } = call_expr.clone()
     {
-        // Apply parse keyword side effects
         let cmd = working_set.get_decl(call.decl_id);
+
         // check help flag first.
         if call.named_iter().any(|(flag, _, _)| flag.item == "help") {
             let call_span = call.span();
@@ -121,10 +118,12 @@ pub fn parse_keyword(
             }]);
         }
 
+        // Apply parser keyword side effects
         match cmd.name() {
             "overlay hide" => parse_overlay_hide(working_set, call),
             "overlay new" => parse_overlay_new(working_set, call),
             "overlay use" => parse_overlay_use(working_set, call),
+            "link" => parse_link(working_set, call),
             _ => Pipeline::from_vec(vec![call_expr]),
         }
     } else {
@@ -776,8 +775,8 @@ pub fn parse_alias(
 
         let Some(alias_name_expr) = alias_call.positional_nth(0) else {
             working_set.error(ParseError::UnknownState(
-                "Missing positional after call check".to_string(),
-                span(spans),
+                    "Missing positional after call check".to_string(),
+                    span(spans),
             ));
             return garbage_pipeline(spans);
         };
@@ -859,7 +858,7 @@ pub fn parse_alias(
                         working_set
                             .parse_errors
                             .truncate(original_starting_error_count);
-                        // ignore missing required positional
+                    // ignore missing required positional
                     } else {
                         return garbage_pipeline(replacement_spans);
                     }
@@ -1789,8 +1788,8 @@ pub fn parse_module_block(
                         }
                         _ => {
                             working_set.error(ParseError::ExpectedKeyword(
-                                "def, const, def-env, extern, alias, use, module, export or export-env keyword".into(),
-                                command.parts[0],
+                                    "def, const, def-env, extern, alias, use, module, export or export-env keyword".into(),
+                                    command.parts[0],
                             ));
 
                             block.pipelines.push(garbage_pipeline(&command.parts))
@@ -2189,6 +2188,100 @@ pub fn parse_module(
         }]),
         Some(module_id),
     )
+}
+
+pub fn parse_link(working_set: &mut StateWorkingSet, call: Box<Call>) -> Pipeline {
+    let call_span = call.span();
+
+    let pipeline = Pipeline::from_vec(vec![Expression {
+        expr: Expr::Call(call.clone()),
+        span: call_span,
+        ty: Type::Any,
+        custom_completion: None,
+    }]);
+
+    let module_name = if let Some(expr) = call.positional_nth(0) {
+        if let Some(path_str) = expr.as_string() {
+            if let Some(stem) = Path::new(&path_str).file_stem() {
+                stem.to_string_lossy().to_string()
+            } else {
+                working_set.error(ParseError::ModuleNotFound(expr.span));
+                // TODO: Error
+                return pipeline;
+            }
+        } else {
+            // TODO: Error
+            return pipeline;
+        }
+    } else {
+        // TODO: Error
+        return pipeline;
+    };
+
+    let mut signatures = vec![];
+
+    // TODO: Errors:
+    if let Some(list_expr) = call.positional_nth(1) {
+        if let Some(list) = list_expr.as_list() {
+            for record_expr in list {
+                // if let Some(record) = record_expr.as_record() {
+                    // let mut ty = String::new();
+                    let mut name = String::new();
+                    let mut signature = Signature::new("tmp");
+
+                    if let Some(sig) = record_expr.as_signature() {
+                        name = "foo".to_string();
+                        signature = *sig;
+                    }
+
+                    // for (key, val) in record {
+                    //     if let Some(k) = key.as_string() {
+                    //         match k.as_str() {
+                    //             "type" => {
+                    //                 if let Some(s) = val.as_string() {
+                    //                     ty = s;
+                    //                 }
+                    //             }
+                    //             "name" => {
+                    //                 if let Some(s) = val.as_string() {
+                    //                     name = s.clone();
+                    //                     signature.name = s;
+                    //                 }
+                    //             }
+                    //             "signature" => {
+                    //                 if let Some(sig) = val.as_signature() {
+                    //                     signature = *sig;
+                    //                 }
+                    //             }
+                    //             _ => {}
+                    //         }
+                    //     }
+                    // }
+
+                    signature.name = name;
+
+                    signatures.push(signature);
+                // }
+            }
+        }
+    }
+
+    let mut module = Module::new(module_name.as_bytes().to_vec());
+
+    for signature in signatures {
+        let decl_name = signature.name.as_bytes().to_vec();
+
+        working_set.enter_scope();
+        let decl = signature.predeclare();
+        let decl_id = working_set.add_decl(decl);
+        working_set.exit_scope();
+
+        module.add_decl(decl_name, decl_id);
+    }
+
+    let _module_id = working_set.add_module(&module_name, module, vec![]);
+
+    pipeline
 }
 
 pub fn parse_use(working_set: &mut StateWorkingSet, spans: &[Span]) -> (Pipeline, Vec<Exportable>) {
@@ -3572,9 +3665,9 @@ pub fn parse_register(working_set: &mut StateWorkingSet, spans: &[Span]) -> Pipe
 
         let Some(true) = valid_plugin_name else {
             return Err(ParseError::LabeledError(
-                "Register plugin failed".into(),
-                "plugin name must start with nu_plugin_".into(),
-                path_span,
+                    "Register plugin failed".into(),
+                    "plugin name must start with nu_plugin_".into(),
+                    path_span,
             ));
         };
 
@@ -3780,7 +3873,7 @@ fn detect_params_in_name(
             label: "expected space".into(),
             help: format!("consider adding a space between the `{decl_name}` command's name and its parameters"),
             span: param_span,
-            };
+        };
         Some(error)
     };
 

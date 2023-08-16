@@ -85,6 +85,13 @@ impl Expression {
         }
     }
 
+    pub fn as_record(&self) -> Option<Vec<(Expression, Expression)>> {
+        match &self.expr {
+            Expr::Record(rec) => Some(rec.clone()),
+            _ => None,
+        }
+    }
+
     pub fn as_list(&self) -> Option<Vec<Expression>> {
         match &self.expr {
             Expr::List(list) => Some(list.clone()),

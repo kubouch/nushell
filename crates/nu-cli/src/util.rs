@@ -239,9 +239,13 @@ pub fn eval_source(
     }
 
     let b = if allow_return {
-        eval_block_with_early_return(engine_state, stack, &block, input, false, false)
+        println!("link file {} with return", fname);
+        nu_cmd_lang::eval_block_mut(engine_state, stack, &block, input, false, false)
+        // eval_block_with_early_return(engine_state, stack, &block, input, false, false)
     } else {
-        eval_block(engine_state, stack, &block, input, false, false)
+        println!("link file {} without return", fname);
+        nu_cmd_lang::eval_block_mut(engine_state, stack, &block, input, false, false)
+        // eval_block(engine_state, stack, &block, input, false, false)
     };
 
     match b {

@@ -83,6 +83,11 @@ pub trait Command: Send + Sync + CommandClone {
         None
     }
 
+    // If this command can link (only used in the `link` command)
+    fn can_link(&self) -> bool {
+        false
+    }
+
     // If command is a block i.e. def blah [] { }, get the block id
     fn get_block_id(&self) -> Option<BlockId> {
         None

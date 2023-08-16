@@ -5326,6 +5326,7 @@ pub fn parse_builtin_commands(
             pipeline
         }
         b"overlay" => parse_keyword(working_set, lite_command, is_subexpression),
+        b"link" => parse_keyword(working_set, lite_command, is_subexpression),
         b"source" | b"source-env" => parse_source(working_set, &lite_command.parts),
         b"export" => parse_export_in_block(working_set, lite_command),
         b"hide" => parse_hide(working_set, &lite_command.parts),
